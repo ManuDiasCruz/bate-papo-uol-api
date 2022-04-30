@@ -69,7 +69,6 @@ app.post('/participants', async (req, res) => {
     }finally{
         mongoClient.close()
     }
-
 })
 
 app.get('/participants', async (req, res) => {
@@ -143,6 +142,30 @@ app.get('/messages', async (req, res) => {
         res.send(userMsgs)
     }catch (e){
         res.status(400).send(e)
+    }finally{
+        mongoClient.close()
+    }
+})
+
+app.post('/status', (req, res) => {
+    const user = req.headers.user
+
+    try{
+        await mongoClient.connect()
+        const dbParticipants = mongoClient.db(process.env.DATABASE).collection('participants')
+        
+        const thereIsUame = await dbParticipants.findOne({ user })
+        if (!thereIsUame)
+            return res.status(404).send(`There is not a user named ${user}`)
+
+        await dbParticipants.updateOne(
+            { _id: user._id },
+            { $set: { lastStatus: Date.now() } }
+        )
+
+        res.status(200).send('User inserted at participants database!')
+    }catch (e){
+        res.status(500).send(e)
     }finally{
         mongoClient.close()
     }
