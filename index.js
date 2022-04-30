@@ -37,20 +37,6 @@ const message = Joi.object({
 
 
 // Requests
-app.get('/participants', async (req, res) => {
-    try{
-        await mongoClient.connect()
-        const dbParticipants = mongoClient.db(process.env.DATABASE).collection('participants')
-        const participantsList = dbParticipants.find().toArray()
-        res.send(participantsList)
-    }catch (e){
-        res.status(400).send(e)
-    }finally{
-        mongoClient.close()
-    }
-})
-
-
 app.post('/participants', async (req, res) => {
 
     const { name } = req.body
@@ -83,4 +69,46 @@ app.post('/participants', async (req, res) => {
         mongoClient.close()
     }
 
+})
+
+app.get('/participants', async (req, res) => {
+    try{
+        await mongoClient.connect()
+        const dbParticipants = mongoClient.db(process.env.DATABASE).collection('participants')
+        const participantsList = dbParticipants.find().toArray()
+        res.send(participantsList)
+    }catch (e){
+        res.status(400).send(e)
+    }finally{
+        mongoClient.close()
+    }
+})
+
+
+app.get('/messages', async (req, res) => {
+
+    const user = req.headers.user
+    const { limit } = req.query
+
+    try{
+        await mongoClient.connect()
+        const dbMessages = mongoClient.db(process.env.DATABASE).collection('messages')
+        const messagesList = dbMessages.find().toArray()
+
+        const userMsgs = messagesList.find(msg => {
+            return ((msg.type == 'message' || msg.type == 'status') ||
+                    (msg.to == user||msg.from == user))
+        })
+
+        let msgsToSend = userMsgs
+
+        if (limit)
+            msgsToSend = userMsgs.splice(userMsgs.length - limit)
+        
+        res.send(userMsgs)
+    }catch (e){
+        res.status(400).send(e)
+    }finally{
+        mongoClient.close()
+    }
 })
