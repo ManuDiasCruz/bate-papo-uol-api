@@ -4,6 +4,7 @@ import chalk from 'chalk'
 import { MongoClient } from 'mongodb'
 import Joi from 'joi'
 import dotenv from 'dotenv'
+import dayjs from 'dayjs'
 
 const app = express()
 app.use(cors())
@@ -24,7 +25,7 @@ const promise = mongoClient.connect()
 
 // Schemas for database collections
 const participant = Joi.object({
-    name: Joi.string().required()
+    name: Joi.string().alphanum().min(1).required()
 })
 
 const message = Joi.object({
@@ -43,16 +44,43 @@ app.get('/participants', async (req, res) => {
         const participantsList = dbParticipants.find().toArray()
         res.send(participantsList)
     }catch (e){
-        console.log(e);
-        res.status(400).send(e);
+        res.status(400).send(e)
     }finally{
-    mongoClient.close();
+        mongoClient.close()
     }
 })
 
 
 app.post('/participants', async (req, res) => {
 
-    const { name } = req.body;
+    const { name } = req.body
+
+    const validation = participant.validate({ name }, { abortEarly: true })
+    if (validation.error) 
+        return res.status(422).send('Error validating participant name!')
+
+    try{
+        await mongoClient.connect()
+        const dbParticipants = mongoClient.db(process.env.DATABASE).collection('participants')
+        const dbMessages = mongoClient.db(process.env.DATABASE).collection('messages')
+
+        const thereIsName = await dbParticipants.findOne({ name })
+        if (thereIsName)
+            return res.status(409).send(`There is already a user named ${name}`)
+
+        await dbParticipants.insertOne({ name, lastStatus: Date.now() })
+        await dbMessages.insertOne({from: name, 
+                                    to: 'Todos', 
+                                    text: 'entra na sala...', 
+                                    type: 'status',
+                                    time: dayjs().format('HH:mm:ss')
+                                })
+
+        res.status(201).send('User inserted at participants database!')
+    }catch (e){
+        res.status(500).send(e)
+    }finally{
+        mongoClient.close()
+    }
 
 })
