@@ -38,7 +38,7 @@ const message = Joi.object({
 
 
 // Listening
-app.listen(5000, () => console.log(chalk.orange.bold('Server listening at http://localhost:5000')))
+app.listen(5000, () => console.log(chalk.bold.cyan('Server listening at http://localhost:5000')))
 
 
 // Requests
@@ -151,7 +151,7 @@ app.get('/messages', async (req, res) => {
     }
 })
 
-app.post('/status', (req, res) => {
+app.post('/status', async (req, res) => {
     const user = req.headers.user
 
     try{
