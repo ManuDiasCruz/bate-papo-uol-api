@@ -37,6 +37,10 @@ const message = Joi.object({
 })
 
 
+// Listening
+app.listen(5000, () => console.log(chalk.orange.bold('Server listening at http://localhost:5000')))
+
+
 // Requests
 app.post('/participants', async (req, res) => {
 
@@ -170,3 +174,26 @@ app.post('/status', (req, res) => {
         mongoClient.close()
     }
 })
+
+setInterval(async() => {
+    try{
+        await mongoClient.connect()
+        const dbParticipants = mongoClient.db(process.env.DATABASE).collection('participants')
+        const dbMessages = mongoClient.db(process.env.DATABASE).collection('messages')
+
+        let participantsList = dbParticipants.find().toArray()
+
+        participantsList.forEach(async (participant) => {
+            const currentTime = Date.now()
+            let timeDifference = currentTime - participant.lastStatus
+            if (timeDifference > 10000){
+                await dbParticipants.deleteOne({ _id: participant._id });
+                await dbMessages.insertOne({ from: participant.name, to: 'Todos', text: 'sai da sala...', type: 'status', time: dayjs().format('HH:mm:ss') })
+            }
+        })
+    }catch (e){
+        res.status(500).send(e)
+    }finally{
+        mongoClient.close()
+    }
+}, 15000)
