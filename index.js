@@ -30,9 +30,10 @@ const participant = Joi.object({
 
 const message = Joi.object({
     from: Joi.string().required(), 
-    to: Joi.string().required(), 
-    text: Joi.string().required(), 
-    type: Joi.string().required()
+    to: Joi.string().min(1).required(), 
+    text: Joi.string().min(1).required(), 
+    type: Joi.string().required(),
+    time: Joi.string().required()
 })
 
 
@@ -84,6 +85,40 @@ app.get('/participants', async (req, res) => {
     }
 })
 
+app.post('/messages', async (req, res) => {
+
+    const { to, text, type } = req.body
+    const user = req.headers.user
+
+    const msg = { from: user, 
+                  to, 
+                  text, 
+                  type,
+                  time: dayjs().format('HH:mm:ss')
+                }
+    const validation = message.validate(msg, { abortEarly: true })
+    if (validation.error) 
+        return res.status(422).send('Error validating message!')
+
+    try{
+        await mongoClient.connect()
+        const dbParticipants = mongoClient.db(process.env.DATABASE).collection('participants')
+        const dbMessages = mongoClient.db(process.env.DATABASE).collection('messages')
+
+        const thereIsParticipant = await dbParticipants.findOne({ name: user })
+        if (thereIsParticipant)
+            return res.status(422).send(`Participant ${user} not found!`)
+
+        await dbMessages.insertOne(msg)
+
+        res.status(201).send('Message inserted at messages database!')
+    }catch (e){
+        res.status(500).send(e)
+    }finally{
+        mongoClient.close()
+    }
+
+})
 
 app.get('/messages', async (req, res) => {
 
