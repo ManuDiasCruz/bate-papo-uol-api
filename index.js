@@ -10,17 +10,17 @@ const app = express()
 app.use(cors())
 app.use(json())
 
+dotenv.config()
 
 // Database connection
 let db = null
-dotenv.config()
 const mongoClient = new MongoClient(process.env.MONGO_URL) // process.env.MONGO_URI
 const promise = mongoClient.connect()
-        .then(()=>{
-            db = mongoClient.db(process.env.DATABASE) // process.env.BANCO
-            console.log(chalk.blue.bold('Banco de dados conectado com sucesso!'))
-        })
-        .catch(e => console.log(chalk.red.bold('Problema na conexão com o banco'), e))
+promise.then(()=>{
+    db = mongoClient.db(process.env.DATABASE) // process.env.BANCO
+    console.log(chalk.blue.bold('Banco de dados conectado com sucesso!'))
+})
+promise.catch(e => console.log(chalk.red.bold('Problema na conexão com o banco'), e))
 
 
 // Schemas for database collections
@@ -30,32 +30,33 @@ const participant = Joi.object({
 
 const message = Joi.object({
     from: Joi.string().required(), 
-    to: Joi.string().min(1).required(), 
-    text: Joi.string().min(1).required(), 
-    type: Joi.string().required(),
+    to: Joi.string().required(), 
+    text: Joi.string().required(), 
+    type: Joi.string().valid('message', 'private_message').required(),
     time: Joi.string().required()
 })
 
 
 // Listening
-app.listen(5000, () => console.log(chalk.bold.cyan('Server listening at http://localhost:5000')))
+app.listen(process.env.DOOR, () => console.log(chalk.bold.cyan(`Server listening at http://localhost:${process.env.DOOR}`)))
 
 
 // Requests
 app.post('/participants', async (req, res) => {
 
-    const { name } = req.body
+    const name = req.body
 
-    const validation = participant.validate({ name }, { abortEarly: true })
+    console.log('Estou no POST/participants', name)
+
+    const validation = participant.validate(name)
     if (validation.error) 
         return res.status(422).send('Error validating participant name!')
 
     try{
-        await mongoClient.connect()
-        const dbParticipants = mongoClient.db(process.env.DATABASE).collection('participants')
-        const dbMessages = mongoClient.db(process.env.DATABASE).collection('messages')
+        const dbParticipants = await db.collection('participants')
+        const dbMessages = await db.collection('messages')
 
-        const thereIsName = await dbParticipants.findOne({ name })
+        const thereIsName = await dbParticipants.findOne({ name: name.name })
         if (thereIsName)
             return res.status(409).send(`There is already a user named ${name}`)
 
@@ -65,8 +66,8 @@ app.post('/participants', async (req, res) => {
                                     text: 'entra na sala...', 
                                     type: 'status',
                                     time: dayjs().format('HH:mm:ss')
-                                })
-
+        })
+        console.log('Msgs: ', dbMessages.find())
         res.status(201).send('User inserted at participants database!')
     }catch (e){
         res.status(500).send(e)
@@ -77,9 +78,11 @@ app.post('/participants', async (req, res) => {
 
 app.get('/participants', async (req, res) => {
     try{
-        await mongoClient.connect()
-        const dbParticipants = mongoClient.db(process.env.DATABASE).collection('participants')
-        const participantsList = dbParticipants.find().toArray()
+        const dbParticipants = await db.collection('participants')
+        const participantsList = await dbParticipants.find().toArray()
+        
+        console.log('Estou no GET/participants', participantsList)
+        
         res.send(participantsList)
     }catch (e){
         res.status(400).send(e)
@@ -93,6 +96,8 @@ app.post('/messages', async (req, res) => {
     const { to, text, type } = req.body
     const user = req.headers.user
 
+    console.log('Estou no POST/messages', user, req.body)
+
     const msg = { from: user, 
                   to, 
                   text, 
@@ -104,9 +109,9 @@ app.post('/messages', async (req, res) => {
         return res.status(422).send('Error validating message!')
 
     try{
-        await mongoClient.connect()
-        const dbParticipants = mongoClient.db(process.env.DATABASE).collection('participants')
-        const dbMessages = mongoClient.db(process.env.DATABASE).collection('messages')
+        console.log('Estou no try', msg)
+        const dbParticipants = await db.collection('participants')
+        const dbMessages = await db.collection('messages')
 
         const thereIsParticipant = await dbParticipants.findOne({ name: user })
         if (thereIsParticipant)
@@ -129,20 +134,19 @@ app.get('/messages', async (req, res) => {
     const { limit } = req.query
 
     try{
-        await mongoClient.connect()
-        const dbMessages = mongoClient.db(process.env.DATABASE).collection('messages')
-        const messagesList = dbMessages.find().toArray()
+        const dbMessages = await db.collection('messages')
+        const messagesList = await dbMessages.find().toArray()
 
         const userMsgs = messagesList.find(msg => {
             return ((msg.type == 'message' || msg.type == 'status') ||
                     (msg.to == user||msg.from == user))
         })
 
-        let msgsToSend = userMsgs
-
         if (limit)
-            msgsToSend = userMsgs.splice(userMsgs.length - limit)
-        
+            res.send(userMsgs.slice(-limit))
+            //msgsToSend = userMsgs.splice(userMsgs.length - limit) // 
+
+        console.log('Estou no GET/messages', userMsgs)
         res.send(userMsgs)
     }catch (e){
         res.status(400).send(e)
@@ -155,8 +159,7 @@ app.post('/status', async (req, res) => {
     const user = req.headers.user
 
     try{
-        await mongoClient.connect()
-        const dbParticipants = mongoClient.db(process.env.DATABASE).collection('participants')
+        const dbParticipants = await mongoClient.db(process.env.DATABASE).collection('participants')
         
         const thereIsUame = await dbParticipants.findOne({ user })
         if (!thereIsUame)
@@ -175,24 +178,45 @@ app.post('/status', async (req, res) => {
     }
 })
 
+const TIME_TO_CHECK = 15 * 1000
 setInterval(async() => {
     try{
-        await mongoClient.connect()
-        const dbParticipants = mongoClient.db(process.env.DATABASE).collection('participants')
-        const dbMessages = mongoClient.db(process.env.DATABASE).collection('messages')
+        const TIME_INATIVE = 10 * 1000
+        const currentTime = Date.now()
+        let timeDifference = currentTime - TIME_INATIVE
+
+        mongoClient.connect()
+        const inactiveParticipants = await db.collection('participants').find({ lastStatus: { $lte: timeDifference } }).toArray()
+
+        if (inactiveParticipants > 0){
+            const inativeMessages = inactiveParticipants.map(participant => {
+                return {
+                  from: participant.name,
+                  to: 'Todos',
+                  text: 'sai da sala...',
+                  type: 'status',
+                  time: dayjs().format("HH:mm:ss")
+                }
+              })
+        
+              await db.collection("messages").insertMany(inativeMessages)
+              await db.collection("participants").deleteMany({ lastStatus: { $lte: TIME_INATIVE } })
+        }
+
+        /* const dbMessages = await db.collection('messages')
 
         let participantsList = dbParticipants.find().toArray()
 
         participantsList.forEach(async (participant) => {
-            const currentTime = Date.now()
+            
             let timeDifference = currentTime - participant.lastStatus
             if (timeDifference > 10000){
                 await dbParticipants.deleteOne({ _id: participant._id });
                 await dbMessages.insertOne({ from: participant.name, to: 'Todos', text: 'sai da sala...', type: 'status', time: dayjs().format('HH:mm:ss') })
             }
-        })
+        }) */
     }catch (e){
-        res.status(500).send(e)
+        console.log('Error removing inative users', e)
     }finally{
         mongoClient.close()
     }
